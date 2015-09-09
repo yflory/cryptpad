@@ -21,11 +21,12 @@ define([
     '/bower_components/reconnectingWebsocket/reconnecting-websocket.js',
     '/common/crypto.js',
     '/common/toolbar.js',
+    '/pad/diffxml-js.js',
     '/pad/rangy.js',
     '/common/chainpad.js',
     '/common/otaml.js',
     '/bower_components/jquery/dist/jquery.min.js',
-], function (HTMLPatcher, ErrorBox, Messages, ReconnectingWebSocket, Crypto, Toolbar) {
+], function (HTMLPatcher, ErrorBox, Messages, ReconnectingWebSocket, Crypto, Toolbar, DiffXmlJs) {
 
 window.ErrorBox = ErrorBox;
 
@@ -320,11 +321,25 @@ console.log(new Error().stack);
                     attempt(realtime.remove)(op.offset, op.toRemove);
                 }
                 if (op.toInsert.length > 0) {
-                    attempt(realtime.insert)(op.offset, op.toInsert);
+
+                    //this._editor -> $('#pad-iframe')[0].contentWindow.CKEDITOR.instances.editor1
+                    var ckEditor = $('#pad-iframe')[0].contentWindow.CKEDITOR.instances.editor1;
+                    var document1 = document.implementation.createHTMLDocument('');
+                    var document2 = document.implementation.createHTMLDocument('');
+                    document1.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( oldDocText );
+                    document2.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( docText );
+                    var delta = (new Fmes()).diff(document1, document2);
+                    console.log(delta._changes);
+                
+                    (new InternalPatch()).apply(ckEditor.document.$, delta);
+                    //attempt(realtime.insert)(op.offset, op.toInsert);
                 }
 
                 if (realtime.getUserDoc() !== docText) {
-                    error(false, 'realtime.getUserDoc() !== docText');
+                    console.log(realtime.getUserDoc());
+                    console.log(docText);
+                    console.log('realtime.getUserDoc() !== docText');
+                    //error(false, 'realtime.getUserDoc() !== docText');
                 }
             };
 
