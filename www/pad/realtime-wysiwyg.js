@@ -26,7 +26,7 @@ define([
     '/common/chainpad.js',
     '/common/otaml.js',
     '/bower_components/jquery/dist/jquery.min.js',
-], function (HTMLPatcher, ErrorBox, Messages, ReconnectingWebSocket, Crypto, Toolbar, DiffXmlJs) {
+], function (HTMLPatcher, ErrorBox, Messages, ReconnectingWebSocket, Crypto, Toolbar) {
 
 window.ErrorBox = ErrorBox;
 
@@ -115,114 +115,6 @@ window.ErrorBox = ErrorBox;
         return doc.body.innerHTML;
     };
 
-    var makeHTMLOperation = function (oldval, newval) {
-        try {
-            var op = Otaml.makeHTMLOperation(oldval, newval);
-
-            if (PARANOIA && op) {
-                // simulate running the patch.
-                var res = HTMLPatcher.patchString(oldval, op.offset, op.toRemove, op.toInsert);
-                if (res !== newval) {
-                    console.log(op);
-                    console.log(oldval);
-                    console.log(newval);
-                    console.log(res);
-                    throw new Error();
-                }
-
-                // check matching bracket count
-                // TODO(cjd): this can fail even if the patch is valid because of brackets in
-                //            html attributes.
-                var removeText = oldval.substring(op.offset, op.offset + op.toRemove);
-                if (((removeText).match(/</g) || []).length !==
-                    ((removeText).match(/>/g) || []).length)
-                {
-                    throw new Error();
-                }
-
-                if (((op.toInsert).match(/</g) || []).length !==
-                    ((op.toInsert).match(/>/g) || []).length)
-                {
-                    throw new Error();
-                }
-            }
-
-            return op;
-
-        } catch (e) {
-            if (PARANOIA) {
-                $(document.body).append('<textarea id="makeOperationErr"></textarea>');
-                $('#makeOperationErr').val(oldval + '\n\n\n\n\n\n\n\n\n\n' + newval);
-                console.log(e.stack);
-            }
-            return {
-                offset: 0,
-                toRemove: oldval.length,
-                toInsert: newval
-            };
-        }
-    };
-
-    // chrome sometimes generates invalid html but it corrects it the next time around.
-    var fixChrome = function (docText, doc, contentWindow) {
-        for (var i = 0; i < 10; i++) {
-            var docElem = doc.createElement('div');
-            docElem.innerHTML = docText;
-            var newDocText = docElem.innerHTML;
-            var fixChromeOp = makeHTMLOperation(docText, newDocText);
-            if (!fixChromeOp) { return docText; }
-            HTMLPatcher.applyOp(docText,
-                                fixChromeOp,
-                                doc.body,
-                                Rangy,
-                                contentWindow);
-            docText = getDocHTML(doc);
-            if (newDocText === docText) { return docText; }
-        }
-        throw new Error();
-    };
-
-    var fixSafari_STATE_OUTSIDE = 0;
-    var fixSafari_STATE_IN_TAG =  1;
-    var fixSafari_STATE_IN_ATTR = 2;
-    var fixSafari_HTML_ENTITIES_REGEX = /('|"|<|>|&lt;|&gt;)/g;
-
-    var fixSafari = function (html) {
-        var state = fixSafari_STATE_OUTSIDE;
-        return html.replace(fixSafari_HTML_ENTITIES_REGEX, function (x) {
-            switch (state) {
-                case fixSafari_STATE_OUTSIDE: {
-                    if (x === '<') { state = fixSafari_STATE_IN_TAG; }
-                    return x;
-                }
-                case fixSafari_STATE_IN_TAG: {
-                    switch (x) {
-                        case '"': state = fixSafari_STATE_IN_ATTR; break;
-                        case '>': state = fixSafari_STATE_OUTSIDE; break;
-                        case "'": throw new Error("single quoted attribute");
-                    }
-                    return x;
-                }
-                case fixSafari_STATE_IN_ATTR: {
-                    switch (x) {
-                        case '&lt;': return '<';
-                        case '&gt;': return '>';
-                        case '"': state = fixSafari_STATE_IN_TAG; break;
-                    }
-                    return x;
-                }
-            };
-            throw new Error();
-        });
-    };
-
-    var getFixedDocText = function (doc, ifrWindow) {
-        var docText = getDocHTML(doc);
-        docText = fixChrome(docText, doc, ifrWindow);
-        docText = fixSafari(docText);
-        return docText;
-    };
-
     var makeWebsocket = function (url) {
         var socket = new ReconnectingWebSocket(url);
         var out = {
@@ -254,6 +146,7 @@ window.ErrorBox = ErrorBox;
         var passwd = 'y';
         var wysiwygDiv = window.document.getElementById('cke_1_contents');
         var ifr = wysiwygDiv.getElementsByTagName('iframe')[0];
+        var ckEditor = $('#pad-iframe')[0].contentWindow.CKEDITOR.instances.editor1;
         var doc = ifr.contentWindow.document;
         var socket = makeWebsocket(websocketUrl);
         var onEvent = function () { };
@@ -263,7 +156,7 @@ window.ErrorBox = ErrorBox;
         var initializing = true;
         var recoverableErrorCount = 0;
         var error = function (recoverable, err) {
-console.log(new Error().stack);
+            console.log(new Error().stack);
             console.log('error: ' + err.stack);
             if (recoverable && recoverableErrorCount++ < MAX_RECOVERABLE_ERRORS) { return; }
             var realtime = socket.realtime;
@@ -312,7 +205,7 @@ console.log(new Error().stack);
                 if (initializing) { return; }
 
                 var oldDocText = realtime.getUserDoc();
-                var docText = getFixedDocText(doc, ifr.contentWindow);
+                var docText = ckEditor.getData().replace(/\n/g,"");
                 var op = attempt(Otaml.makeTextOperation)(oldDocText, docText);
 
                 if (!op) { return; }
@@ -332,28 +225,19 @@ console.log(new Error().stack);
             var userDocBeforePatch;
             var incomingPatch = function () {
                 if (isErrorState || initializing) { return; }
-                userDocBeforePatch = userDocBeforePatch || getFixedDocText(doc, ifr.contentWindow);
-                if (PARANOIA && userDocBeforePatch != getFixedDocText(doc, ifr.contentWindow)) {
-                    error(false, "userDocBeforePatch != getFixedDocText(doc, ifr.contentWindow)");
+                userDocBeforePatch = userDocBeforePatch || ckEditor.getData().replace(/\n/g,"");
+                if (PARANOIA && userDocBeforePatch !== ckEditor.getData().replace(/\n/g,"")) {
+                    error(false, "userDocBeforePatch !== ckEditor.getData().replace(/\n/g,'')");
                 }
 
-                //this._editor -> $('#pad-iframe')[0].contentWindow.CKEDITOR.instances.editor1
-                var ckEditor = $('#pad-iframe')[0].contentWindow.CKEDITOR.instances.editor1;
                 var document1 = document.implementation.createHTMLDocument('');
                 var document2 = document.implementation.createHTMLDocument('');
                 document1.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( userDocBeforePatch );
                 document2.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( realtime.getUserDoc() );
                 var delta = (new Fmes()).diff(document1, document2);
                 if(delta._changes.length == 0) { return; }
-                console.log(delta._changes);
                 (new InternalPatch()).apply(ckEditor.document.$, delta);
-                console.log(realtime.getUserDoc());
-                console.log(getFixedDocText(doc, ifr.contentWindow));
-                    /*
-                var op = attempt(makeHTMLOperation)(userDocBeforePatch, realtime.getUserDoc());
-                if (!op) { return; }
-                attempt(HTMLPatcher.applyOp)(
-                    userDocBeforePatch, op, doc.body, rangy, ifr.contentWindow);/* */
+                ckEditor.setData(ckEditor.dataProcessor.toHtml(ckEditor.document.getBody().$.innerHTML));
             };
 
             realtime.onUserListChange(function (userList) {
