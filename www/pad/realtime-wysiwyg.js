@@ -205,7 +205,11 @@ window.ErrorBox = ErrorBox;
                 if (initializing) { return; }
 
                 var oldDocText = realtime.getUserDoc();
-                var docText = ckEditor.getData().replace(/\n/g,"");
+
+                var document1 = document.implementation.createHTMLDocument('');
+                document1.documentElement.innerHTML = ckEditor.getData().replace(/\n/g,"");
+                var docText = ckEditor.dataProcessor.toHtml( document1.documentElement.innerHTML );
+
                 var op = attempt(Otaml.makeTextOperation)(oldDocText, docText);
 
                 if (!op) { return; }
@@ -225,19 +229,36 @@ window.ErrorBox = ErrorBox;
             var userDocBeforePatch;
             var incomingPatch = function () {
                 if (isErrorState || initializing) { return; }
+
                 userDocBeforePatch = userDocBeforePatch || ckEditor.getData().replace(/\n/g,"");
                 if (PARANOIA && userDocBeforePatch !== ckEditor.getData().replace(/\n/g,"")) {
                     error(false, "userDocBeforePatch !== ckEditor.getData().replace(/\n/g,'')");
                 }
+                var docAfterPatch = realtime.getUserDoc();
 
                 var document1 = document.implementation.createHTMLDocument('');
                 var document2 = document.implementation.createHTMLDocument('');
                 document1.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( userDocBeforePatch );
-                document2.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( realtime.getUserDoc() );
+                document2.documentElement.innerHTML = ckEditor.dataProcessor.toHtml( docAfterPatch );
                 var delta = (new Fmes()).diff(document1, document2);
                 if(delta._changes.length == 0) { return; }
+try {
                 (new InternalPatch()).apply(ckEditor.document.$, delta);
-                ckEditor.setData(ckEditor.dataProcessor.toHtml(ckEditor.document.getBody().$.innerHTML));
+} catch (e) {
+console.log(delta);
+console.log(e.stack);
+throw e;
+}
+                ckEditor.setData(ckEditor.dataProcessor.toHtml(ckEditor.document.getBody().$.innerHTML), undefined, true);
+
+                if (PARANOIA && docAfterPatch !== ckEditor.getData().replace(/\n/g,"")) {
+var op = Otaml.makeTextOperation(docAfterPatch, ckEditor.getData().replace(/\n/g,""));
+var inv = Otaml.makeTextOperation(ckEditor.getData().replace(/\n/g,""), docAfterPatch);
+console.log(op);
+console.log(inv);
+                    error(false, "userDocBeforePatch !== ckEditor.getData().replace(/\n/g,'')");
+                }
+
             };
 
             realtime.onUserListChange(function (userList) {
