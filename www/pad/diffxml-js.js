@@ -546,7 +546,7 @@ InternalPatch = DiffXmlUtils.createClass(null, {
       for ( var i = 0, l = patch.getChanges().length; i < l; i++) {
         // Normalize is essential for deletes to work
         doc.normalize();
-console.log('test');
+
         var operation = patch.getChanges()[i];
         switch (operation.type) {
           case 'insert':
