@@ -18,12 +18,13 @@ define([
     '/common/messages.js',
     // TODO remove in favour of netflux
     '/bower_components/reconnectingWebsocket/reconnecting-websocket.js',
+	  '/common/netflux_api.js',
     '/common/crypto.js',
     '/common/toolbar.js',
     '/common/sharejs_textarea.js',
     '/common/chainpad.js',
     '/bower_components/jquery/dist/jquery.min.js',
-], function (Messages,/*FIXME*/ ReconnectingWebSocket, Crypto, Toolbar, sharejs) {
+], function (Messages,/*FIXME*/ ReconnectingWebSocket, NetFlux, Crypto, Toolbar, sharejs) {
     var $ = window.jQuery;
     var ChainPad = window.ChainPad;
     var PARANOIA = true;
@@ -159,7 +160,7 @@ define([
         var transformFunction = config.transformFunction || null;
 
         var socket;
-       
+
         if (config.socketAdaptor) {
             // do netflux stuff
         } else {
@@ -186,7 +187,116 @@ define([
                 return;
             }
 
-            var realtime = socket.realtime = ChainPad.create(userName,
+            NetFlux.init(socket, userName, cryptKey, warn);
+            NetFlux.update($(textarea).val(),
+            {
+              transformFunction: config.transformFunction
+            })
+            NetFlux.join(channel)
+                  .then(function(wc){
+                      if (config.onInit) {
+                          // extend as you wish
+                          config.onInit({
+                              realtime: realtime
+                          });
+                      }
+
+                      onEvent = function () {
+                          // This looks broken
+                          if (isErrorState || initializing) { return; }
+                      };
+                      
+                      wc.onJoining(function (userList) {
+                          if (!initializing || userList.indexOf(userName) === -1) {
+                              return;
+                          }
+                          // if we spot ourselves being added to the document, we'll switch
+                          // 'initializing' off because it means we're fully synced.
+                          initializing = false;
+
+                          // execute an onReady callback if one was supplied
+                          // pass an object so we can extend this later
+                          if (config.onReady) {
+                              // extend as you wish
+                              config.onReady({
+                                  userList: userList
+                              });
+                          }
+                      });
+                      
+                      var whoami = new RegExp(userName.replace(/\/\+/g, function (c) {
+                          return '\\' +c;
+                      }));
+                      
+                      // when you receive a message...
+                      wc.onMessage(function (evt) {
+                          verbose(evt.data);
+                          if (isErrorState) { return; }
+
+                          var message = Crypto.decrypt(evt.data, cryptKey);
+                          verbose(message);
+                          allMessages.push(message);
+                          if (!initializing) {
+                              if (PARANOIA) {
+                                  onEvent();
+                              }
+                          }
+                          wc.realtime.message(message);
+                          if (/\[5,/.test(message)) { verbose("pong"); }
+
+                          if (!initializing) {
+                              if (/\[2,/.test(message)) {
+                                  //verbose("Got a patch");
+                                  if (whoami.test(message)) {
+                                      //verbose("Received own message");
+                                  } else {
+                                      //verbose("Received remote message");
+                                      // obviously this is only going to get called if
+                                      if (onRemote) { onRemote(wc.realtime.getUserDoc()); }
+                                  }
+                              }
+                          }
+                      });
+                      
+                      // when a message is ready to send
+                      wc.onSendMessage(function (message) {
+                          wc.send(message);
+                      });
+                      
+                      
+                      NetFlux.socket.onerror = warn;
+
+                      // TODO confirm that we can rely on netflux API
+                      var socketChecker = setInterval(function () {
+                          if (checkSocket(NetFlux.socket)) {
+                              warn("Socket disconnected!");
+
+                              recoverableErrorCount += 1;
+
+                              if (recoverableErrorCount >= MAX_RECOVERABLE_ERRORS) {
+                                  warn("Giving up!");
+                                  abort(NetFlux.socket, wc.realtime);
+                                  if (socketChecker) { clearInterval(socketChecker); }
+                              }
+                          } else {
+                              // TODO
+                          }
+                      },200);
+
+                      bindAllEvents(textarea, doc, onEvent, false);
+
+                      // attach textarea
+                      // NOTE: should be able to remove the websocket without damaging this
+                      console.log(wc);
+                      sharejs.attach(textarea, wc.realtime);
+
+                      wc.realtime.start();
+                      debug('started');
+
+                      bump = wc.realtime.bumpSharejs;
+                  });
+             /**/
+            /*var realtime = socket.realtime = ChainPad.create(userName,
                                 passwd,
                                 channel,
                                 $(textarea).val(),
@@ -269,6 +379,7 @@ define([
                 }
             });
 
+            /*
             // actual socket bindings
             socket.onmessage = function (evt) {
                 for (var i = 0; i < socket.onMessage.length; i++) {
@@ -280,8 +391,8 @@ define([
                     if (socket.onClose[i](evt) === false) { return; }
                 }
             };
-
-            socket.onerror = warn;
+*/
+            /*socket.onerror = warn;
 
             // TODO confirm that we can rely on netflux API
             var socketChecker = setInterval(function () {
@@ -309,7 +420,7 @@ define([
             realtime.start();
             debug('started');
 
-            bump = realtime.bumpSharejs;
+            bump = realtime.bumpSharejs;*/
         });
         return {
             onEvent: function () {
