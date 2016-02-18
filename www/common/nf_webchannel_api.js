@@ -1,9 +1,10 @@
-define(['/common/crypto.js'], function (Crypto) {
+define(function () {
 	var module = { exports: {} };
   var rt;
   var ws;
   var userName;
-  var warn, cryptKey;
+  var warn;
+  var initializing = true;
 	
 	var onLeaving = module.exports.onLeaving = function() {
 		
@@ -22,12 +23,8 @@ define(['/common/crypto.js'], function (Crypto) {
     ws.onMessage.push(callback);
 	}
   
-  var onSendMessage = module.exports.onSendMessage = function(callback) {
-		rt.onMessage(callback);
-	}
   
   var send = module.exports.send = function(message) {
-    message = Crypto.encrypt(message, cryptKey);
         try {
             ws.send(message);
         } catch (e) {
@@ -35,11 +32,10 @@ define(['/common/crypto.js'], function (Crypto) {
         }
   }
 
-  var init = module.exports.init = function(realtime, socket, user, key, warnFct) {
+  var create = module.exports.create = function(realtime, socket, user, warnFct) {
     rt = module.exports.realtime = realtime;
     ws = socket;
     userName = user;
-    cryptKey = key;
     warn = warnFct;
   }
 
