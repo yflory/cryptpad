@@ -1,16 +1,11 @@
 define(['/bower_components/reconnectingWebsocket/reconnecting-websocket.js',
         '/common/netflux_api.js'], function (ReconnectingWebSocket, Netflux) {
 	var module = { exports: {} };
-  
-  var userName, cryptKey;
-  var warn;
-  var textVal, transformFunction;
-	
-	var create = module.exports.create = function(url, user, textareaVal, channel, config) {
+  	
+	var create = module.exports.create = function(url) {
         return new Promise(function(resolve, reject) {
             var socket = new ReconnectingWebSocket(url);
             
-            if (socket) {
                 var out = {
                     onOpen: [],
                     onClose: [],
@@ -32,14 +27,17 @@ define(['/bower_components/reconnectingWebsocket/reconnecting-websocket.js',
                 };
                 socket.onopen = mkHandler('onOpen');
                 socket.onclose = mkHandler('onClose');
-                socket.onerror = mkHandler('onError');
+                socket.onerror = function (x) { console.error(x); };
                 socket.onmessage = mkHandler('onMessage');
-                Netflux.create(out, user, textareaVal, channel, config);
-                resolve(Netflux);
-            }
-            else {
-                reject(Error("Unable to connect to the WebSocket service."));
-            }
+                Netflux.create(out);
+
+                out.onOpen.push(function() {
+                    resolve(Netflux);
+                });
+                out.onError.push(function(){
+                    reject(Error("Unable to connect to the WebSocket service."));
+                });
+                
         });
     }
 
