@@ -16,7 +16,7 @@
  */
 define([
     '/common/messages.js',
-    '/common/nf_facade.js',
+    '/common/nf_websocketservice.js',
     '/common/crypto.js',
     '/common/toolbar.js',
     '/common/sharejs_textarea.js',
@@ -30,7 +30,8 @@ define([
 
     var debug = function (x) { console.log(x); },
         warn = function (x) { console.error(x); },
-        verbose = function (x) { /*console.log(x);*/ };
+        verbose = function (x) { console.log(x); };
+    verbose = function () {}; // comment out to enable verbose logging
 
     // ------------------ Trapping Keyboard Events ---------------------- //
 
@@ -96,126 +97,129 @@ define([
 
         var bump = function () {};
 
-        WebSocketNetflux.create(websocketUrl)
-        .then(function(netflux) {
-            
-            if (initializing && typeof realtime !== "undefined") {
-                console.log("Starting");
+        var netflux = new WebSocketNetflux();
+        var options = {connector : netflux};
+        var webchannel;
+        var realtime;
+        
+        // Connect to the WebSocket server
+        netflux.connect(websocketUrl).then(function(facade) {
+
+            // Join a WebChannel
+            facade.join(channel, options).then(function(wc) {
+
+                webchannel = wc;
+                wc.onmessage = onMessage; // On receiving message
+                wc.onJoining = onJoining; // On user joining the session
+
+                // Open a Chainpad session
+                realtime = createRealtime();
+                realtime.onUserListChange(function (userList) {
+                    var opt = {userList : userList};
+                    wc.onJoining(opt);
+                });
+                // On sending message
+                realtime.onMessage(function(message) {
+                    message = Crypto.encrypt(message, cryptKey);
+                    wc.send(message).then( function(){}, function(error) {
+                        warn(error);
+                    });
+                });
+
+                // Check the connection to the channel
+                checkConnection(wc);
+
+                bindAllEvents(textarea, doc, onEvent, false);
+
+                sharejs.attach(textarea, realtime);
+                bump = realtime.bumpSharejs;
+
                 realtime.start();
-                return;
-            }
+            }, function(error) {
+                warn(error);
+            });
             
-            var realtime = ChainPad.create(userName,
+        }, function(error) {
+            warn(error);
+        });
+
+        var createRealtime = function() {
+            return ChainPad.create(userName,
                                         passwd,
                                         channel,
                                         $(textarea).val(),
                                         {
                                         transformFunction: config.transformFunction
                                         });
-            netflux.join(channel).then(function(webChannel) {
-                if (config.onInit) {
-                    config.onInit({
-                        realtime: realtime
-                    });
+        }
+
+        var onMessage = function(message) {
+
+            message = Crypto.decrypt(message, cryptKey);
+            
+            verbose(message);
+            allMessages.push(message);
+            if (!initializing) {
+                if (PARANOIA) {
+                    onEvent();
                 }
+            }
+            realtime.message(message);
+            if (/\[5,/.test(message)) { verbose("pong"); }
 
-                onEvent = function () {
-                    if (initializing) { return; }
-                };
-                
-                realtime.onUserListChange(function (userList) {
-                    if (!initializing || userList.indexOf(userName) === -1) {
-                        return;
-                    }
-                    // if we spot ourselves being added to the document, we'll switch
-                    // 'initializing' off because it means we're fully synced.
-                    initializing = false;
-
-                    // execute an onReady callback if one was supplied
-                    // pass an object so we can extend this later
-                    if (config.onReady) {
-                        config.onReady({
-                            userList: userList
-                        });
-                    }
-                });
-                
-                var whoami = new RegExp(userName.replace(/\/\+/g, function (c) {
-                    return '\\' +c;
-                }));
-                
-                // When you receive a message...
-                webChannel.onMessage(function (evt) {
-                    verbose(evt.data);
-                    var message = evt.data;
-
-                    message = Crypto.decrypt(message, cryptKey);
-                    
-                    verbose(message);
-                    allMessages.push(message);
-                    if (!initializing) {
-                        if (PARANOIA) {
-                            onEvent();
-                        }
-                    }
-                    realtime.message(message);
-                    if (/\[5,/.test(message)) { verbose("pong"); }
-
-                    if (!initializing) {
-                        if (/\[2,/.test(message)) {
-                            //verbose("Got a patch");
-                            if (whoami.test(message)) {
-                                //verbose("Received own message");
-                            } else {
-                                //verbose("Received remote message");
-                                // obviously this is only going to get called if
-                                if (onRemote) { onRemote(realtime.getUserDoc()); }
-                            }
-                        }
-                    }
-                });
-                
-                // When a message is ready to send
-                realtime.onMessage(function (message) {
-                    message = Crypto.encrypt(message, cryptKey);
-                    webChannel.send(message);
-                });
-                
-                var socketChecker = setInterval(function () {
-                    if (netflux.checkSocket(realtime)) {
-                        warn("Socket disconnected!");
-
-                        recoverableErrorCount += 1;
-
-                        if (recoverableErrorCount >= MAX_RECOVERABLE_ERRORS) {
-                            warn("Giving up!");
-                            realtime.abort();
-                            webChannel.leave()
-                                .then(null, function(err) {
-                                    warn(err);
-                                });
-                            if (socketChecker) { clearInterval(socketChecker); }
-                        }
+            if (!initializing) {
+                if (/\[2,/.test(message)) {
+                    //verbose("Got a patch");
+                    if (whoami.test(message)) {
+                        //verbose("Received own message");
                     } else {
-                        // TODO
+                        //verbose("Received remote message");
+                        // obviously this is only going to get called if
+                        if (onRemote) { onRemote(realtime.getUserDoc()); }
                     }
-                },200);
+                }
+            }
+        }
+        var onJoining = function(optionnalData) {
+            var userList = optionnalData.userList || [];
+            if (!initializing || userList.indexOf(userName) === -1) {
+                return;
+            }
+            // if we spot ourselves being added to the document, we'll switch
+            // 'initializing' off because it means we're fully synced.
+            initializing = false;
 
-                bindAllEvents(textarea, doc, onEvent, false);
+            // execute an onReady callback if one was supplied
+            // pass an object so we can extend this later
+            if (config.onReady) {
+                config.onReady({
+                    userList: userList
+                });
+            }
+        }
 
-                // Attach textarea to the realtime session
-                // NOTE: should be able to remove the websocket without damaging this
-                sharejs.attach(textarea, realtime);
-                bump = realtime.bumpSharejs;
+        var checkConnection = function(wc) {
+            var socketChecker = setInterval(function () {
+                if (netflux.checkSocket(realtime)) {
+                    warn("Socket disconnected!");
 
-                realtime.start();
-                debug('started');
-            }, function(error) {
-                warn(error);
-            });
-        }, function(error) {
-            warn(error);
-        });
+                    recoverableErrorCount += 1;
+
+                    if (recoverableErrorCount >= MAX_RECOVERABLE_ERRORS) {
+                        warn("Giving up!");
+                        realtime.abort();
+                        wc.leave()
+                            .then(null, function(err) {
+                                warn(err);
+                            });
+                        if (socketChecker) { clearInterval(socketChecker); }
+                    }
+                } else {
+                    // TODO
+                }
+            },200);
+        }
+
         return {
             onEvent: function () {
                 onEvent();
