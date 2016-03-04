@@ -108,6 +108,7 @@ var dropClient = function (ctx, userpass) {
 };
 
 var handleMessage = function (ctx, socket, msg) {
+  console.log(msg);
     var parsed = parseMessage(msg);
     var userPass = parsed.user + ':' + parsed.pass;
     msg = popPassword(msg);

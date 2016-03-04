@@ -16,13 +16,13 @@
  */
 define([
     '/common/messages.js',
-    '/common/nf_websocketservice.js',
+    '/common/Netflux.js',
     '/common/crypto.js',
     '/common/toolbar.js',
     '/common/sharejs_textarea.js',
     '/common/chainpad.js',
     '/bower_components/jquery/dist/jquery.min.js',
-], function (Messages, WebSocketNetflux, Crypto, Toolbar, sharejs) {
+], function (Messages, Netflux, Crypto, Toolbar, sharejs) {
     var $ = window.jQuery;
     var ChainPad = window.ChainPad;
     var PARANOIA = true;
@@ -97,37 +97,38 @@ define([
 
         var bump = function () {};
 
-        var netflux = new WebSocketNetflux();
-        var options = {connector : netflux};
-        var webchannel;
+        var options = {
+          signaling: websocketUrl,
+          topology: 'StarTopologyService',
+          protocol: 'WebSocketProtocolService',
+          connector: 'WebSocketService'
+        };
         var realtime;
         
         // Connect to the WebSocket server
-        netflux.connect(websocketUrl).then(function(facade) {
-
+        // netflux.connect(websocketUrl).then(function(facade) {
             // Join a WebChannel
-            facade.join(channel, options).then(function(wc) {
-
-                webchannel = wc;
-                wc.onmessage = onMessage; // On receiving message
+            Netflux.join(channel, options).then(function(wc) {
+                wc.onMessage = onMessage; // On receiving message
                 wc.onJoining = onJoining; // On user joining the session
 
                 // Open a Chainpad session
                 realtime = createRealtime();
                 realtime.onUserListChange(function (userList) {
                     var opt = {userList : userList};
+                    // TODO : onJoining should only a a "newPeer" parameter
                     wc.onJoining(opt);
                 });
                 // On sending message
                 realtime.onMessage(function(message) {
+                  console.log(message);
                     message = Crypto.encrypt(message, cryptKey);
-                    wc.send(message).then( function(){}, function(error) {
-                        warn(error);
-                    });
+                    console.log(message);
+                    wc.send(message);
                 });
-
+                console.log('okokok,ok');
                 // Check the connection to the channel
-                checkConnection(wc);
+                //checkConnection(wc);
 
                 bindAllEvents(textarea, doc, onEvent, false);
 
@@ -135,13 +136,15 @@ define([
                 bump = realtime.bumpSharejs;
 
                 realtime.start();
+                console.log(realtime);
+                console.log("ThisIsTheEnd")
             }, function(error) {
                 warn(error);
             });
             
-        }, function(error) {
-            warn(error);
-        });
+        // }, function(error) {
+            // warn(error);
+        // });
 
         var createRealtime = function() {
             return ChainPad.create(userName,
@@ -152,8 +155,12 @@ define([
                                         transformFunction: config.transformFunction
                                         });
         }
+        
+        var whoami = new RegExp(userName.replace(/[\/\+]/g, function (c) {
+            return '\\' +c;
+        }));
 
-        var onMessage = function(message) {
+        var onMessage = function(user, message) {
 
             message = Crypto.decrypt(message, cryptKey);
             
@@ -199,7 +206,8 @@ define([
         }
 
         var checkConnection = function(wc) {
-            var socketChecker = setInterval(function () {
+          //TODO
+            /*var socketChecker = setInterval(function () {
                 if (netflux.checkSocket(realtime)) {
                     warn("Socket disconnected!");
 
@@ -212,12 +220,17 @@ define([
                             .then(null, function(err) {
                                 warn(err);
                             });
+                        if (config.onAbort) {
+                            config.onAbort({
+                                socket: socket
+                            });
+                        }
                         if (socketChecker) { clearInterval(socketChecker); }
                     }
                 } else {
-                    // TODO
+                    // it's working as expected, continue
                 }
-            },200);
+            }, 200);*/
         }
 
         return {
