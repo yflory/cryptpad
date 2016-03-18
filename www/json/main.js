@@ -1,14 +1,13 @@
 require(['ChainJSON.js',
         'jquery.min.js'], function(API) {
   var $ = window.$;
-  var options = {
-    onReady : function() {
-      $('#prop').attr('disabled', false);
-      $('#value').attr('disabled', false);
-    }
-  };
-  API.register({}, options).then(function(p) {
-    
+
+  var p;
+  API.on('ready', function() {
+    console.log('READY');
+    $('#prop').attr('disabled', false);
+    $('#value').attr('disabled', false);
+    // Ability to change object values
     $('#send').click(function() {
       var prop = $('#prop').val();
       var value = $('#value').val();
@@ -24,15 +23,19 @@ require(['ChainJSON.js',
         }
       }
     });
-    
+    // Get the current value of the proxy
     $('#getvalue').click(function(){
       console.log(p);
       alert(JSON.stringify(p));
-      
     });
-    
-  });;
+  });
   
+  API.on('change', function(oldObj, newObj) {
+    console.log("old: " + oldObj + '  new: ' + newObj);
+  });
+
+  var options = {};
+  p = API.getCollaborativeObject(options);
   
   
   
