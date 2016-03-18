@@ -1,13 +1,27 @@
 require(['ChainJSON.js',
         'jquery.min.js'], function(API) {
   var $ = window.$;
-  API.register({}).then(function(p) {
+  var options = {
+    onReady : function() {
+      $('#prop').attr('disabled', false);
+      $('#value').attr('disabled', false);
+    }
+  };
+  API.register({}, options).then(function(p) {
     
     $('#send').click(function() {
       var prop = $('#prop').val();
       var value = $('#value').val();
       if(prop.trim() && value.trim()) {
-        p[prop] = value;
+        if(parseInt(value).toString() === value) {
+          p[prop] = parseInt(value);
+        }
+        else if(parseFloat(value).toString() === value) {
+          p[prop] = parseFloat(value);
+        }
+        else {
+          p[prop] = value;
+        }
       }
     });
     

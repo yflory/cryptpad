@@ -40,17 +40,18 @@ define(['/api/config?cb=' + Math.random().toString(16).substring(2),
     }
   };
 
+  
 
 
-  var register = function(obj) {
+  var register = function(obj, config) {
     return new Promise(function(resolve, reject) {
           var $textarea = $('#synced');
           var stringJSON = JSON.stringify(obj);
-          var channel = 'testjson';
+          var channel = config.chnnel || 'testjson';
           var options = {
             key: channel
           };
-          options.signaling = 'ws://localhost:3001/cryptpad_websocket';
+          options.signaling = config.url || 'ws://localhost:3001/cryptpad_websocket';
           options.topology = 'StarTopologyService';
           options.protocol = 'WebSocketProtocolService';
           options.connector = 'WebSocketService';
@@ -62,6 +63,12 @@ define(['/api/config?cb=' + Math.random().toString(16).substring(2),
           var onLeaving = () => {};
           var onMessage = (peer, msg, p) => {
             console.log(msg);
+            if(msg == "0") {
+              if(config.onReady) {
+                config.onReady();
+              }
+              return;
+            }
             var passLen = msg.substring(0,msg.indexOf(':'));
             var message = msg.substring(passLen.length+1 + Number(passLen));
             realtime.message(message);
@@ -132,6 +139,11 @@ define(['/api/config?cb=' + Math.random().toString(16).substring(2),
               
 
               realtime.start();
+              
+              var hc;
+              wc.peers.forEach(function (p) { if (!hc || p.linkQuality > hc.linkQuality) { hc = p; } });
+              hc.send(JSON.stringify(['GET_HISTORY', wc.id]));
+              
               resolve(p);
           }, function(error) {
               reject(error);
