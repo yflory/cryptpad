@@ -309,7 +309,6 @@ define([
             var incomingPatch = function () {
                 if (isErrorState || initializing) { return; }
                 var textAreaVal = $(textArea).val();
-                                console.log($(textArea).val());
                 userDocBeforePatch = userDocBeforePatch || textAreaVal;
                 if (userDocBeforePatch !== textAreaVal) {
                   //error(false, "userDocBeforePatch !== textAreaVal");
