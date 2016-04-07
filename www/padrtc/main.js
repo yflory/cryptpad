@@ -2,7 +2,7 @@ define([
     '/api/config?cb=' + Math.random().toString(16).substring(2),
     '/common/messages.js',
     '/common/crypto.js',
-    '/common/realtime-input.js',
+    '/padrtc/realtime-input.js',
     '/common/hyperjson.js',
     '/common/hyperscript.js',
     '/common/toolbar.js',
@@ -56,8 +56,9 @@ define([
         }
         else {
             var hash = window.location.hash.substring(1);
-            channel = hash.substr(0,32);
-            key = hash.substr(33);
+            var sep = hash.indexOf('|');
+            channel = hash.substr(0,sep);
+            key = hash.substr(sep+1);
         }
 
         var fixThings = false;
@@ -192,8 +193,9 @@ define([
                 // provide initialstate...
                 initialState: JSON.stringify(Hyperjson.fromDOM(inner, isNotMagicLine)),
 
-                // the websocket URL
+                // the websocket URL (deprecated?)
                 websocketURL: Config.websocketURL,
+                webrtcURL: Config.webrtcURL,
 
                 // our username
                 userName: userName,
