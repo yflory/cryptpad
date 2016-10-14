@@ -531,6 +531,30 @@ define([
             f(void 0, env);
         };
 
+        /*StoreWS.init().then(function (store) {
+            common.store = env.store = store;
+            $(function() {
+                // Race condition : if document.body is undefined when alertify.js is loaded, Alertify
+                // won't work. We have to reset it now to make sure it uses a correct "body"
+                Alertify.reset();
+                if($('#pad-iframe').length) {
+                    var $iframe = $('#pad-iframe');
+                    var iframe = $iframe[0];
+                    var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (iframeDoc.readyState === 'complete') {
+                        cb();
+                        return;
+                    }
+                    $iframe.load(cb);
+                    return;
+                }
+                cb();
+            });
+        }, function (err) {
+            console.error(err);
+        });
+        if(StoreWS) { return ; }*/
+        
         Store.ready(function (err, store) {
             common.store = env.store = store;
 
