@@ -154,10 +154,13 @@ define([
                 oldFo.fixFiles();
                 var newData = Cryptpad.getStore().getProxy();
                 var newFo = newData.fo;
-                var newRecentPads = proxy.drive[Cryptpad.storageKey];
-                var newFiles = newFo.getFiles([newFo.FILES_DATA]);
-                var oldFiles = oldFo.getFiles([newFo.FILES_DATA]);
-                oldFiles.forEach(function (href) {
+                var oldRecentPads = parsed.drive[newFo.NEW_FILES_DATA]; // TODOKEY
+                var newRecentPads = proxy.drive[newFo.NEW_FILES_DATA]; // TODOKEY
+                var newFiles = newFo.getFiles([newFo.NEW_FILES_DATA]);
+                var oldFiles = oldFo.getFiles([newFo.NEW_FILES_DATA]);
+                oldFiles.forEach(function (id) {
+                    var href = oldRecentPads[id].href;
+                    //TODO: href or id??
                     // Do not migrate a pad if we already have it, it would create a duplicate in the drive
                     if (newFiles.indexOf(href) !== -1) { return; }
                     // If we have a stronger version, do not add the current href
@@ -179,11 +182,11 @@ define([
                         return;
                     }
                     // Here it means we have a new href, so we should add it to the drive at its old location
-                    var paths = oldFo.findFile(href);
+                    var paths = oldFo.findFile(id);
                     if (paths.length === 0) { return; }
                     createFromPath(proxy, oldFo, paths[0], href);
                     // Also, push the file data in our array
-                    var data = oldFo.getFileData(href);
+                    var data = oldFo.getFileData(id);
                     if (data) {
                         newRecentPads.push(data);
                     }

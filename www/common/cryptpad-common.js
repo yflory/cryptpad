@@ -314,7 +314,8 @@ define([
     };
     // Remove everything from RecentPads that is not an object and check the objects
     var checkRecentPads = common.checkRecentPads = function (pads) {
-        pads.forEach(function (pad, i) {
+        Object.keys(pads).forEach(function (id, i) {
+            var pad = pads[id];
             if (pad && typeof(pad) === 'object') {
                 var parsedHash = checkObjectData(pad);
                 if (!parsedHash || !parsedHash.type) {
@@ -331,6 +332,7 @@ define([
 
     // Get the pads from localStorage to migrate them to the object store
     common.getLegacyPads = function (cb) {
+        console.error('...');
         require(['/customize/store.js'], function(Legacy) { // TODO DEPRECATE_F
             Legacy.ready(function (err, legacy) {
                 if (err) { cb(err, null); return; }
@@ -415,8 +417,10 @@ define([
         return templates;
     };
     common.addTemplate = function (data) {
-        getStore().pushData(data);
-        getStore().addPad(data.href, ['template']);
+        getStore().pushData(data, function (e, id) {
+            if (e) { return void console.error("Error while adding a template:", e); } // TODO LIMIT
+            getStore().addPad(id, ['template']);
+        });
     };
 
     common.isTemplate = function (href) {
@@ -459,13 +463,13 @@ define([
     // STORAGE
     /* fetch and migrate your pad history from the store */
     var getRecentPads = common.getRecentPads = function (cb) {
-        getStore().getDrive(storageKey, function (err, recentPads) {
-            if (Array.isArray(recentPads)) {
+        getStore().getDrive('filesData', function (err, recentPads) {
+            if (typeof(recentPads) === "object") {
                 checkRecentPads(recentPads);
                 cb(void 0, recentPads);
                 return;
             }
-            cb(void 0, []);
+            cb(void 0, {});
         });
     };
 
@@ -491,37 +495,16 @@ define([
     common.forgetPad = function (href, cb) {
         var parsed = parsePadUrl(href);
 
-        var callback = function (err) {
-            if (err) {
-                cb(err);
-                return;
-            }
-
-            getStore().keys(function (err, keys) {
-                if (err) {
-                    cb(err);
-                    return;
-                }
-                var toRemove = keys.filter(function (k) {
-                    return k.indexOf(parsed.hash) === 0;
-                });
-
-                if (!toRemove.length) {
-                    cb();
-                    return;
-                }
-                getStore().removeBatch(toRemove, function (err, data) {
-                    cb(err, data);
-                });
-            });
-        };
-
         if (typeof(getStore().forgetPad) === "function") {
-            getStore().forgetPad(common.getRelativeHref(href), callback);
+            getStore().forgetPad(common.getRelativeHref(href), cb);
+            return;
         }
+        cb ("store.forgetPad is not a function");
     };
 
+    // TODO remove ?
     var updateFileName = function (href, oldName, newName) {
+        return;
         var fo = getStore().getProxy().fo;
         var paths = fo.findFileInRoot(href);
         paths.forEach(function (path) {
@@ -548,7 +531,8 @@ define([
 
             var updateWeaker = [];
             var contains;
-            recent.forEach(function (pad) {
+            Object.keys(recent).forEach(function (id) {
+                var pad = recent[id];
                 var p = parsePadUrl(pad.href);
 
                 if (p.type !== parsed.type) { return pad; }
@@ -590,14 +574,14 @@ define([
                         });
                     }
                     pad.href = href;
-                    updateFileName(href, old, name);
+                    updateFileName(href, old, name); // TODO
                 }
                 return pad;
             });
 
             if (!contains && href) {
                 var data = makePad(href, name);
-                getStore().pushData(data, function (e) {
+                getStore().pushData(data, function (e, id) {
                     if (e) {
                         if (e === 'E_OVER_LIMIT' && AppConfig.enablePinLimit) {
                             common.alert(Messages.pinLimitNotPinned, null, true);
@@ -605,12 +589,12 @@ define([
                         }
                         else { throw new Error("Cannot push this pad to CryptDrive", e); }
                     }
-                    getStore().addPad(data, common.initialPath);
+                    getStore().addPad(id, common.initialPath);
                 });
             }
             if (updateWeaker.length > 0) {
                 updateWeaker.forEach(function (obj) {
-                    getStore().replaceHref(obj.o, obj.n);
+                    getStore().replaceHref(obj.o);
                 });
             }
             cb(err, recent);
@@ -664,7 +648,9 @@ define([
         var userChannel = userParsedHash && userParsedHash.channel;
         if (!userChannel) { return null; }
 
-        var list = fo.getFiles([fo.FILES_DATA]).map(hrefToHexChannelId)
+        var list = fo.getFiles([fo.NEW_FILES_DATA]).map(function (id) {
+                return hrefToHexChannelId(fo.getFileData(id).href);
+            })
             .filter(function (x) { return x; });
 
         list.push(common.base64ToHex(userChannel));

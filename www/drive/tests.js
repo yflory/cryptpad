@@ -172,7 +172,5 @@ define([
 
     };
 
-    //TODO test with a file not in RECENTPADS 
-
     return module;
 });

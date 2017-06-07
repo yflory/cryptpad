@@ -8,13 +8,13 @@ define([
     var UNSORTED = module.UNSORTED = "unsorted";
     var TRASH = module.TRASH = "trash";
     var TEMPLATE = module.TEMPLATE = "template";
-    var NEW_FILES_DATA = 'filesData';
 
     module.init = function (files, config) {
         var exp = {};
         var Cryptpad = config.Cryptpad;
         var Messages = Cryptpad.Messages;
 
+        var NEW_FILES_DATA = module.NEW_FILES_DATA = exp.NEW_FILES_DATA = 'filesData';
         var FILES_DATA = module.FILES_DATA = exp.FILES_DATA = Cryptpad.storageKey;
         var NEW_FOLDER_NAME = Messages.fm_newFolder;
         var NEW_FILE_NAME = Messages.fm_newFile;
@@ -55,12 +55,15 @@ define([
         var compareFiles = function (fileA, fileB) { return fileA === fileB; };
 
         var isFile = exp.isFile = function (element) {
-            return typeof(element) === "number" || typeof(element) === "string";
+            return typeof(element) === "number" ||
+                    (typeof(files[FILES_DATA]) !== "undefined" &&  typeof(element) === "string");
         };
 
+        // UPDATED
         exp.isReadOnlyFile = function (element) {
             if (!isFile(element)) { return false; }
-            var parsed = Cryptpad.parsePadUrl(element);
+            var data = exp.getFileData(element);
+            var parsed = Cryptpad.parsePadUrl(data.href);
             if (!parsed) { return false; }
             var pHash = parsed.hashData;
             return pHash && pHash.mode === 'view';
@@ -110,30 +113,24 @@ define([
             return file;
         };
 
+        // UPDATED
         // Get data from AllFiles (Cryptpad_RECENTPADS)
         var getFileData = exp.getFileData = function (file) {
             if (!file) { return; }
-            var res;
-            files[FILES_DATA].some(function(arr) {
-                var href = arr.href;
-                if (href === file) {
-                    res = arr;
-                    return true;
-                }
-                return false;
-            });
-            return res;
+            return files[NEW_FILES_DATA][file] || {};
         };
 
+        // UPDATED
+        // TODO getTitle and getFileName separate?
         // Data from filesData
-        var getTitle = exp.getTitle = function (href) {
+        var getTitle = exp.getTitle = function (file) {
             if (workgroup) { debug("No titles in workgroups"); return; }
-            var data = getFileData(href);
-            if (!href || !data) {
-                error("getTitle called with a non-existing href: ", href);
+            var data = getFileData(file);
+            if (!file || !data || !data.href) {
+                error("getTitle called with a non-existing file id: ", file, data);
                 return;
             }
-            return data.title;
+            return data.filename || data.title;
         };
 
 
@@ -185,6 +182,7 @@ define([
             var path = pathInput.slice();
             var key = path.shift();
             if (typeof root[key] === "undefined") {
+                console.error('oo');
                 debug("Unable to find the key '" + key + "' in the root object provided:", root);
                 return;
             }
@@ -256,16 +254,11 @@ define([
             });
             return ret;
         };
+        // UPDATED
         _getFiles[NEW_FILES_DATA] = function () {
             var ret = [];
             if (!files[NEW_FILES_DATA]) { return ret; }
-            for (var k in files[NEW_FILES_DATA]) {
-                var el = files[NEW_FILES_DATA][k];
-                if (el.href && ret.indexOf(el.href) === -1) {
-                    ret.push(el.href);
-                }
-            };
-            return ret;
+            return Object.keys(files[NEW_FILES_DATA]).map(Number);
         };
         var getFiles = exp.getFiles = function (categories) {
             var ret = [];
@@ -281,7 +274,7 @@ define([
         };
 
         // SEARCH
-        var _findFileInRoot = function (path, href) {
+        var _findFileInRoot = function (path, file) {
             if (!isPathIn(path, [ROOT, TRASH])) { return []; }
             var paths = [];
             var root = find(path);
@@ -292,7 +285,7 @@ define([
             };
 
             if (isFile(root)) {
-                if (compareFiles(href, root)) {
+                if (compareFiles(file, root)) {
                     if (paths.indexOf(path) === -1) {
                         paths.push(path);
                     }
@@ -302,25 +295,25 @@ define([
             for (var e in root) {
                 var nPath = path.slice();
                 nPath.push(e);
-                _findFileInRoot(nPath, href).forEach(addPaths);
+                _findFileInRoot(nPath, file).forEach(addPaths);
             }
 
             return paths;
         };
-        exp.findFileInRoot = function (href) {
-            return _findFileInRoot([ROOT], href);
+        exp.findFileInRoot = function (file) {
+            return _findFileInRoot([ROOT], file);
         };
-        var _findFileInHrefArray = function (rootName, href) {
+        var _findFileInHrefArray = function (rootName, file) {
             if (!files[rootName]) { return []; }
             var unsorted = files[rootName].slice();
             var ret = [];
             var i = -1;
-            while ((i = unsorted.indexOf(href, i+1)) !== -1){
+            while ((i = unsorted.indexOf(file, i+1)) !== -1){
                 ret.push([rootName, i]);
             }
             return ret;
         };
-        var _findFileInTrash = function (path, href) {
+        var _findFileInTrash = function (path, file) {
             var root = find(path);
             var paths = [];
             var addPaths = function (p) {
@@ -334,7 +327,7 @@ define([
                     if (!Array.isArray(arr)) { return; }
                     var nPath = path.slice();
                     nPath.push(key);
-                    _findFileInTrash(nPath, href).forEach(addPaths);
+                    _findFileInTrash(nPath, file).forEach(addPaths);
                 });
             }
             if (path.length === 2) {
@@ -344,28 +337,30 @@ define([
                     nPath.push(i);
                     nPath.push('element');
                     if (isFile(el.element)) {
-                        if (compareFiles(href, el.element)) {
+                        if (compareFiles(file, el.element)) {
                             addPaths(nPath);
                         }
                         return;
                     }
-                    _findFileInTrash(nPath, href).forEach(addPaths);
+                    _findFileInTrash(nPath, file).forEach(addPaths);
                 });
             }
             if (path.length >= 4) {
-                _findFileInRoot(path, href).forEach(addPaths);
+                _findFileInRoot(path, file).forEach(addPaths);
             }
             return paths;
         };
-        var findFile = exp.findFile = function (href) {
-            var rootpaths = _findFileInRoot([ROOT], href);
-            var templatepaths = _findFileInHrefArray(TEMPLATE, href);
-            var trashpaths = _findFileInTrash([TRASH], href);
+        var findFile = exp.findFile = function (file) {
+            var rootpaths = _findFileInRoot([ROOT], file);
+            var templatepaths = _findFileInHrefArray(TEMPLATE, file);
+            var trashpaths = _findFileInTrash([TRASH], file);
             return rootpaths.concat(templatepaths, trashpaths);
         };
+        // UPDATED
         exp.search = function (value) {
             if (typeof(value) !== "string") { return []; }
             var res = [];
+            /* TODO remove?
             // Search in ROOT
             var findIn = function (root) {
                 Object.keys(root).forEach(function (k) {
@@ -395,20 +390,25 @@ define([
                     }
                 });
             });
-
+            */
             // Search title
-            var allFilesList = files[FILES_DATA].slice();
-            allFilesList.forEach(function (t) {
-                if (t.title && t.title.toLowerCase().indexOf(value.toLowerCase()) !== -1) {
-                    res.push(t.href);
+            var allFilesList = files[NEW_FILES_DATA];
+            var lValue = value.toLowerCase();
+            getFiles([NEW_FILES_DATA]).forEach(function (id) {
+                var data = allFilesList[id];
+                if ((data.title && data.title.toLowerCase().indexOf(lValue) !== -1) ||
+                    (data.filename && data.filename.toLowerCase().indexOf(lValue) !== -1)) {
+                    res.push(id);
                 }
             });
 
+            /* TODO ?
             // Search Href
             var href = Cryptpad.getRelativeHref(value);
             if (href) {
                 res.push(href);
             }
+            */
 
             res = Cryptpad.deduplicateString(res);
 
@@ -439,11 +439,13 @@ define([
         };
 
         // FILES DATA
+        // UPDATED
         var pushFileData = exp.pushData = function (data, cb) {
             if (typeof cb !== "function") { cb = function () {}; }
             var todo = function () {
-                files[FILES_DATA].push(data);
-                cb();
+                var id = Cryptpad.createRandomInteger();
+                files[FILES_DATA][id] = data;
+                cb(null, id);
             };
             if (!Cryptpad.isLoggedIn() || !AppConfig.enablePinning) { return void todo(); }
             Cryptpad.pinPads([Cryptpad.hrefToHexChannelId(data.href)], function (e) {
@@ -451,15 +453,17 @@ define([
                 todo();
             });
         };
-        var spliceFileData = exp.removeData = function (idx) {
-            var data = files[FILES_DATA][idx];
+        // UPDATED
+        var spliceFileData = exp.removeData = function (id) {
+            delete files[NEW_FILES_DATA][id];
+            /*var data = files[FILES_DATA][idx];
             if (typeof data === "object" && Cryptpad.isLoggedIn() && AppConfig.enablePinning) {
                 Cryptpad.unpinPads([Cryptpad.hrefToHexChannelId(data.href)], function (e, hash) {
                     if (e) { return void logError(e); }
                     debug('UNPIN', hash);
                 });
             }
-            files[FILES_DATA].splice(idx, 1);
+            files[FILES_DATA].splice(idx, 1);*/
         };
 
         // MOVE
@@ -506,6 +510,7 @@ define([
                 }
             }
             // Move to root
+            /* TODO remove
             var name;
             if (isPathIn(elementPath, ['hrefArray'])) {
                 name = getTitle(element);
@@ -516,6 +521,8 @@ define([
                 name = elementPath[elementPath.length-1];
             }
             var newName = !isPathIn(elementPath, [ROOT]) ? getAvailableName(newParent, name) : name;
+            */
+            var newName = getAvailableName(newParent, Cryptpad.createChannelId());
 
             if (typeof(newParent[newName]) !== "undefined") {
                 log(Messages.fo_unavailableName);
@@ -552,11 +559,11 @@ define([
 
 
         // ADD
-        var add = exp.add = function (data, path) {
+        // UPDATED
+        var add = exp.add = function (id, path) {
             if (!Cryptpad.isLoggedIn()) { return; }
+            var data = files[NEW_FILES_DATA][id];
             if (!data || typeof(data) !== "object") { return; }
-            var href = data.href;
-            var name = data.title;
             var newPath = path, parentEl;
             if (path && !Array.isArray(path)) {
                 newPath = decodeURIComponent(path).split(',');
@@ -564,21 +571,25 @@ define([
             // Add to href array
             if (path && isPathIn(newPath, ['hrefArray'])) {
                 parentEl = find(newPath);
-                parentEl.push(href);
+                parentEl.push(id);
                 return;
             }
             // Add to root if path is ROOT or if no path
             var filesList = getFiles([ROOT, TRASH, 'hrefArray']);
-            if ((path && isPathIn(newPath, [ROOT]) || filesList.indexOf(href) === -1) && name) {
+            if (path && isPathIn(newPath, [ROOT]) || filesList.indexOf(href) === -1) {
                 parentEl = find(newPath || [ROOT]);
                 if (parentEl) {
-                    var newName = getAvailableName(parentEl, name);
-                    parentEl[newName] = href;
+                    var newName = getAvailableName(parentEl, Cryptpad.createChannelId());
+                    parentEl[newName] = id;
                     return;
                 }
             }
         };
+        // TODO: remove ??
+        // --> Use the old system to add the file only after it is opened?
         exp.addFile = function (filePath, name, type, cb) {
+            console.error("DEPRECATED");
+            return;
             var parentEl = findElement(files, filePath);
             var fileName = getAvailableName(parentEl, name || NEW_FILE_NAME);
             var href = '/' + type + '/#' + Cryptpad.createRandomHash();
@@ -613,20 +624,28 @@ define([
         };
 
         // FORGET (move with href not path)
-        exp.forget = function (href) {
-            if (!Cryptpad.isLoggedIn()) {
-                // delete permanently
-                var data = getFileData(href);
-                if (data) {
-                    var i = find([FILES_DATA]).indexOf(data);
-                    if (i !== -1) {
-                        exp.removePadAttribute(href);
-                        spliceFileData(i);
-                    }
+        var getIdFromHref = function (href) {
+            var result;
+            getFiles([NEW_FILES_DATA]).some(function (id) {
+                if (files[NEW_FILES_DATA][id].href === href) {
+                    result = id;
+                    return true;
                 }
                 return;
+            });
+            return result;
+        };
+        // UPDATED
+        exp.forget = function (href) {
+            var id = getIdFromHref(href);
+            if (!id) { return; }
+            if (!Cryptpad.isLoggedIn()) {
+                // delete permanently
+                exp.removePadAttribute(href);
+                spliceFileData(id);
+                return;
             }
-            var paths = findFile(href);
+            var paths = findFile(id);
             move(paths, [TRASH]);
         };
 
@@ -647,30 +666,24 @@ define([
                 }
             });
         };
+        // UPDATED
         var checkDeletedFiles = function () {
             // Nothing in FILES_DATA for workgroups
             if (workgroup || !Cryptpad.isLoggedIn()) { return; }
 
             var filesList = getFiles([ROOT, 'hrefArray', TRASH]);
-            var toRemove = [];
-            files[FILES_DATA].forEach(function (arr) {
-                var f = arr.href;
-                if (filesList.indexOf(f) === -1) {
-                    toRemove.push(arr);
-                }
-            });
-            toRemove.forEach(function (f) {
-                var idx = files[FILES_DATA].indexOf(f);
-                if (idx !== -1) {
-                    debug("Removing", f, "from filesData");
-                    spliceFileData(idx);
-                    removePadAttribute(f.href);
+            var fData = files[NEW_FILES_DATA];
+            getFiles([NEW_FILES_DATA]).forEach(function (id) {
+                if (filesList.indexOf(id) === -1) {
+                    console.log(id); return;
+                    removePadAttribute(fData[id].href);
+                    spliceFileData(id);
                 }
             });
         };
-        var deleteHrefs = function (hrefs) {
-            hrefs.forEach(function (obj) {
-                var idx = files[obj.root].indexOf(obj.href);
+        var deleteHrefs = function (ids) {
+            ids.forEach(function (obj) {
+                var idx = files[obj.root].indexOf(obj.id);
                 files[obj.root].splice(idx, 1);
             });
         };
@@ -684,33 +697,30 @@ define([
             var hrefPaths = paths.filter(function(x) { return isPathIn(x, ['hrefArray']); });
             var rootPaths = paths.filter(function(x) { return isPathIn(x, [ROOT]); });
             var trashPaths = paths.filter(function(x) { return isPathIn(x, [TRASH]); });
-            var allFilesPaths = paths.filter(function(x) { return isPathIn(x, [FILES_DATA]); });
+            var allFilesPaths = paths.filter(function(x) { return isPathIn(x, [NEW_FILES_DATA]); });
 
             if (!Cryptpad.isLoggedIn()) {
                 var toSplice = [];
                 allFilesPaths.forEach(function (path) {
                     var el = find(path);
-                    toSplice.push(el);
-                });
-                toSplice.forEach(function (el) {
-                    var i = find([FILES_DATA]).indexOf(el);
-                    if (i === -1) { return; }
+                    if (!el) { return; }
+                    var id = getIdFromHref(el.href);
+                    if (!id) { return; }
+                    spliceFileData(id);
                     removePadAttribute(el.href);
-                    console.log(el.href);
-                    spliceFileData(i);
                 });
                 return;
             }
 
-            var hrefs = [];
+            var ids = [];
             hrefPaths.forEach(function (path) {
-                var href = find(path);
-                hrefs.push({
+                var id = find(path);
+                ids.push({
                     root: path[0],
-                    href: href
+                    id: id
                 });
             });
-            deleteHrefs(hrefs);
+            deleteHrefs(ids);
 
             rootPaths.forEach(function (path) {
                 var parentPath = path.slice();
@@ -760,65 +770,52 @@ define([
                 logError('Renaming `root` is forbidden');
                 return;
             }
-            if (!newName || newName.trim() === "") { return; }
             // Copy the element path and remove the last value to have the parent path and the old name
             var element = find(path);
+            var data = files[NEW_FILES_DATA][element];
+            if (!data) { return; }
+            if (!newName || newName.trim() === "") {
+                data.filename = undefined;
+                delete data.filename;
+                if (typeof cb === "function") { cb(); }
+                return;
+            }
             var parentPath = path.slice();
             var oldName = parentPath.pop();
             if (oldName === newName) {
                 return;
             }
             var parentEl = find(parentPath);
+            /* TODO: remove and remove the key from translation
             if (typeof(parentEl[newName]) !== "undefined") {
                 log(Messages.fo_existingNameError);
                 return;
-            }
-            parentEl[newName] = element;
-            parentEl[oldName] = undefined;
-            delete parentEl[oldName];
+            }*/
+            data.filename = newName;
             if (typeof cb === "function") { cb(); }
         };
 
         // REPLACE
-        var replaceFile = function (path, o, n) {
-            var root = find(path);
-
-            if (isFile(root)) { return; }
-            for (var e in root) {
-                if (isFile(root[e])) {
-                    if (compareFiles(o, root[e])) {
-                        root[e] = n;
-                    }
-                } else {
-                    var nPath = path.slice();
-                    nPath.push(e);
-                    replaceFile(nPath, o, n);
-                }
-            }
-        };
         // Replace a href by a stronger one everywhere in the drive (except FILES_DATA)
-        exp.replace = function (o, n) {
-            if (!isFile(o) || !isFile(n)) { return; }
-            var paths = findFile(o);
+        exp.replace = function (o) {
+            var idO = getIdFromHref(o);
+
+            if (!idO || !isFile(idO)) { return; }
+
+            var paths = findFile(idO);
 
             // Remove all the occurences in the trash
-            // Replace all the occurences not in the trash
-            // If all the occurences are in the trash or no occurence, add the pad to unsorted
+            // If all the occurences are in the trash or no occurence, add the pad to root
             var allInTrash = true;
             paths.forEach(function (p) {
                 if (p[0] === TRASH) {
                     exp.delete(p, null, true); // 3rd parameter means skip "checkDeletedFiles"
                     return;
-                } else {
-                    allInTrash = false;
-                    var parentPath = p.slice();
-                    var key = parentPath.pop();
-                    var parentEl = find(parentPath);
-                    parentEl[key] = n;
                 }
+                allInTrash = false;
             });
             if (allInTrash) {
-                add(n);
+                add(idO);
             }
         };
 
@@ -925,12 +922,12 @@ define([
                     var el = fd[id];
                     if (!el || typeof(el) !== "object") {
                         debug("An element in filesData was not an object.", el);
-                        toClean.push(el);
+                        toClean.push(id);
                         continue;
                     }
                     if (!el.href) {
                         debug("Removing an element in filesData with a missing href.", el);
-                        toClean.push(el);
+                        toClean.push(id);
                         continue;
                     }
                     if (Cryptpad.isLoggedIn() && rootFiles.indexOf(id) === -1) {
@@ -940,16 +937,13 @@ define([
                         continue;
                     }
                 };
-                toClean.forEach(function (el) {
-                    var idx = fd.indexOf(el);
-                    if (idx !== -1) {
-                        spliceFileData(idx);
-                    }
+                toClean.forEach(function (id) {
+                    spliceFileData(id);
                 });
             };
 
             // Make sure unsorted doesn't exist anymore
-            // Note: Unsorted only works with ld structure where pads are href
+            // Note: Unsorted only works with the old structure where pads are href
             // It should be called before the migration code
             var fixUnsorted = function () {
                 if (!files[UNSORTED] || !files[FILES_DATA]) { return; }
@@ -982,8 +976,12 @@ define([
                 });
                 delete files[UNSORTED];
             };
-            // TODO: getRecentPads in cryptpad-common
-            // TODO: in fixRoot, trash and template, make sure we have a filedata associated to the id
+            // TODO: recentPads and href//id in mergeDrive.js
+            // TODO: check anonymous drive: search for isLoggedIn
+            // TODO: Add tests for exp.replace, exp.add,, exp.delete. etc.
+            // TODO: context menu remove rename and fix it for folders
+            // TODO: readonly / rightclick properties
+            // TODO: check integration test in drive
             var migrateToNewFormat = function () {
                 if (!files[FILES_DATA]) { return; }
                 try {
@@ -995,7 +993,7 @@ define([
                         var href = obj.href;
                         var id = Cryptpad.createRandomInteger();
                         var paths = findFile(href);
-                        var data = getFileData(href);
+                        var data = obj;
                         var key = Cryptpad.createChannelId();
                         if (data) {
                             newData[id] = data;

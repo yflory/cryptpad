@@ -87,10 +87,7 @@ define([
 
         ret.removeData = filesOp.removeData;
         ret.pushData = filesOp.pushData;
-
-        ret.addPad = function (data, path) {
-            filesOp.add(data, path);
-        };
+        ret.addPad = filesOp.add;
 
         ret.forgetPad = function (href, cb) {
             filesOp.forget(href);
@@ -270,7 +267,8 @@ define([
             if (!rt.proxy.drive || typeof(rt.proxy.drive) !== 'object') { rt.proxy.drive = {}; }
             var drive = rt.proxy.drive;
             // Creating a new anon drive: import anon pads from localStorage
-            if (!drive[Cryptpad.storageKey] || !Cryptpad.isArray(drive[Cryptpad.storageKey])) {
+            if ((!drive[Cryptpad.storageKey] || !Cryptpad.isArray(drive[Cryptpad.storageKey])) &&
+                !drive['filesData']) {
                 Cryptpad.getLegacyPads(function (err, data) {
                     drive[Cryptpad.storageKey] = data;
                     onReady(f, rt.proxy, Cryptpad, exp);
